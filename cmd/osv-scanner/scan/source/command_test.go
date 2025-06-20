@@ -1,6 +1,7 @@
 package source_test
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -36,10 +37,20 @@ func TestCommand(t *testing.T) {
 			Args: []string{"", "source", "--config=./fixtures/osv-scanner-empty-config.toml", "--sbom", "./fixtures/sbom-insecure/alpine.cdx.xml"},
 			Exit: 1,
 		},
+		{
+			Name: "one specific supported sbom with vulns using -L flag",
+			Args: []string{"", "source", "--config=./fixtures/osv-scanner-empty-config.toml", "-L", "./fixtures/sbom-insecure/alpine.cdx.xml"},
+			Exit: 1,
+		},
 		// one specific supported sbom with vulns and invalid PURLs
 		{
 			Name: "one specific supported sbom with invalid PURLs",
 			Args: []string{"", "source", "--config=./fixtures/osv-scanner-empty-config.toml", "--sbom", "./fixtures/sbom-insecure/bad-purls.cdx.xml"},
+			Exit: 0,
+		},
+		{
+			Name: "one specific supported sbom with invalid PURLs using -L flag",
+			Args: []string{"", "source", "--config=./fixtures/osv-scanner-empty-config.toml", "-L", "./fixtures/sbom-insecure/bad-purls.cdx.xml"},
 			Exit: 0,
 		},
 		// one specific supported sbom with duplicate PURLs
@@ -48,10 +59,20 @@ func TestCommand(t *testing.T) {
 			Args: []string{"", "source", "--config=./fixtures/osv-scanner-empty-config.toml", "--sbom", "./fixtures/sbom-insecure/with-duplicates.cdx.xml"},
 			Exit: 1,
 		},
+		{
+			Name: "one specific supported sbom with duplicate PURLs using -L flag",
+			Args: []string{"", "source", "--config=./fixtures/osv-scanner-empty-config.toml", "-L", "./fixtures/sbom-insecure/with-duplicates.cdx.xml"},
+			Exit: 1,
+		},
 		// one file that does not match the supported sbom file names
 		{
 			Name: "one file that does not match the supported sbom file names",
 			Args: []string{"", "source", "--config=./fixtures/osv-scanner-empty-config.toml", "--sbom", "./fixtures/locks-many/composer.lock"},
+			Exit: 127,
+		},
+		{
+			Name: "one file that does not match the supported sbom file names using -L flag",
+			Args: []string{"", "source", "--config=./fixtures/osv-scanner-empty-config.toml", "-L", "spdx:./fixtures/locks-many/composer.lock"},
 			Exit: 127,
 		},
 		// one specific unsupported lockfile
@@ -71,6 +92,32 @@ func TestCommand(t *testing.T) {
 			Name: "all supported lockfiles in the directory should be checked",
 			Args: []string{"", "source", "./fixtures/locks-many-with-invalid"},
 			Exit: 127,
+		},
+		// no lockfiles present in a directory
+		{
+			Name: "no_lockfiles_without_recursion_or_allow_flag_give_an_error",
+			Args: []string{"", "source", "./fixtures/locks-none"},
+			Exit: 128,
+		},
+		{
+			Name: "no_lockfiles_without_recursion_but_with_allow_flag_are_fine",
+			Args: []string{"", "source", "--allow-no-lockfiles", "./fixtures/locks-none"},
+			Exit: 0,
+		},
+		{
+			Name: "no_lockfiles_with_allow_flag_but_another_error_happens_is_not_fine",
+			Args: []string{"", "source", "--allow-no-lockfiles", "./fixtures/locks-none-does-not-exist"},
+			Exit: 127,
+		},
+		{
+			Name: "no_lockfiles_with_recursion_but_without_allow_flag_are_fine",
+			Args: []string{"", "source", "--recursive", "./fixtures/locks-none"},
+			Exit: 0,
+		},
+		{
+			Name: "no_lockfiles_with_recursion_and_with_allow_flag_are_fine",
+			Args: []string{"", "source", "--recursive", "--allow-no-lockfiles", "./fixtures/locks-none"},
+			Exit: 0,
 		},
 		// only the files in the given directories are checked by default (no recursion)
 		{
@@ -216,7 +263,7 @@ func TestCommand(t *testing.T) {
 		{
 			Name: "config file is invalid",
 			Args: []string{"", "source", "./fixtures/config-invalid"},
-			Exit: 127,
+			Exit: 130,
 		},
 		// config file with unknown keys
 		{
@@ -395,6 +442,14 @@ func TestCommand_CallAnalysis(t *testing.T) {
 				"--config=./fixtures/osv-scanner-call-analysis-config.toml",
 				"./fixtures/call-analysis-go-project"},
 			Exit: 1,
+		},
+		{
+			Name: "Run with govulncheck all uncalled",
+			Args: []string{"", "source",
+				"--call-analysis=go",
+				"--config=./fixtures/osv-scanner-call-analysis-config.toml",
+				"./fixtures/call-analysis-go-project-all-uncalled"},
+			Exit: 0,
 		},
 	}
 	for _, tt := range tests {
@@ -770,7 +825,7 @@ func TestCommand_Licenses(t *testing.T) {
 	}
 }
 
-func TestCommand_MavenTransitive(t *testing.T) {
+func TestCommand_Transitive(t *testing.T) {
 	t.Parallel()
 
 	tests := []testcmd.Case{
@@ -807,8 +862,23 @@ func TestCommand_MavenTransitive(t *testing.T) {
 			Exit: 1,
 		},
 		{
-			Name: "resolve transitive dependencies with native data source",
+			Name: "resolves transitive dependencies with native data source",
 			Args: []string{"", "source", "--config=./fixtures/osv-scanner-empty-config.toml", "--data-source=native", "-L", "pom.xml:./fixtures/maven-transitive/registry.xml"},
+			Exit: 1,
+		},
+		{
+			Name: "uses native data source for requirements.txt",
+			Args: []string{"", "source", "--config=./fixtures/osv-scanner-empty-config.toml", "./fixtures/locks-requirements/requirements.txt"},
+			Exit: 1,
+		},
+		{
+			Name: "does not scan transitive dependencies for requirements.txt with no-resolve",
+			Args: []string{"", "source", "--config=./fixtures/osv-scanner-empty-config.toml", "--no-resolve", "./fixtures/locks-requirements/requirements.txt"},
+			Exit: 1,
+		},
+		{
+			Name: "does not scan transitive dependencies for requirements.txt with offline mode",
+			Args: []string{"", "source", "--config=./fixtures/osv-scanner-empty-config.toml", "--offline", "--download-offline-databases", "./fixtures/locks-requirements/requirements.txt"},
 			Exit: 1,
 		},
 	}
@@ -828,7 +898,7 @@ func TestCommand_MoreLockfiles(t *testing.T) {
 		{
 			Name: "uv.lock",
 			Args: []string{"", "source", "-L", "./fixtures/locks-scalibr/uv.lock"},
-			Exit: 0,
+			Exit: 1,
 		},
 		{
 			Name: "depsjson",
@@ -864,6 +934,31 @@ func TestCommand_MoreLockfiles(t *testing.T) {
 		*/
 	}
 
+	for _, tt := range tests {
+		t.Run(tt.Name, func(t *testing.T) {
+			t.Parallel()
+			testcmd.RunAndMatchSnapshots(t, tt)
+		})
+	}
+}
+
+func TestCommandNonGit(t *testing.T) {
+	t.Parallel()
+
+	testDir := testutility.CreateTestDir(t)
+	err := os.CopyFS(testDir, os.DirFS("./fixtures/locks-many"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []testcmd.Case{
+		// one specific supported lockfile
+		{
+			Name: "one specific supported lockfile",
+			Args: []string{"", "source", filepath.Join(testDir, "composer.lock")},
+			Exit: 0,
+		},
+	}
 	for _, tt := range tests {
 		t.Run(tt.Name, func(t *testing.T) {
 			t.Parallel()

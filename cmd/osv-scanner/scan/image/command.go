@@ -69,13 +69,11 @@ func action(_ context.Context, cmd *cli.Command, stdout, stderr io.Writer) error
 		return err
 	}
 
-	scannerAction := osvscanner.ScannerActions{
-		Image:                      cmd.Args().First(),
-		ConfigOverridePath:         cmd.String("config"),
-		IsImageArchive:             cmd.Bool("archive"),
-		IncludeGitRoot:             cmd.Bool("include-git-root"),
-		ExperimentalScannerActions: helper.GetExperimentalScannerActions(cmd, scanLicensesAllowlist),
-	}
+	scannerAction := helper.GetCommonScannerActions(cmd, scanLicensesAllowlist)
+
+	scannerAction.Image = cmd.Args().First()
+	scannerAction.IsImageArchive = cmd.Bool("archive")
+	scannerAction.ExperimentalScannerActions = helper.GetExperimentalScannerActions(cmd)
 
 	if len(scannerAction.Extractors) == 0 {
 		return errors.New("at least one extractor must be enabled")
@@ -84,6 +82,11 @@ func action(_ context.Context, cmd *cli.Command, stdout, stderr io.Writer) error
 	var vulnResult models.VulnerabilityResults
 	//nolint:contextcheck // passing the context in would be a breaking change
 	vulnResult, err = osvscanner.DoContainerScan(scannerAction)
+
+	if cmd.Bool("allow-no-lockfiles") && errors.Is(err, osvscanner.ErrNoPackagesFound) {
+		slog.Warn("No package sources found")
+		err = nil
+	}
 
 	if err != nil && !errors.Is(err, osvscanner.ErrVulnerabilitiesFound) {
 		return err

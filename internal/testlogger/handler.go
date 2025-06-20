@@ -85,6 +85,7 @@ func (tl *Handler) Handle(ctx context.Context, record slog.Record) error {
 		"VERSION_ID not set in os-release",
 		"osrelease.ParseOsRelease(): file does not exist",
 		"Status: new inodes:",
+		"Created image content file:",
 	} {
 		if strings.HasPrefix(record.Message, prefix) {
 			return nil
@@ -105,6 +106,12 @@ func (tl *Handler) Handle(ctx context.Context, record slog.Record) error {
 // a level of [slog.LevelError]
 func (tl *Handler) HasErrored() bool {
 	return tl.getLogger().HasErrored()
+}
+
+// HasErroredBecauseInvalidConfig returns true if there have been any calls to
+// Handle with a level of [slog.LevelError] due to a config file being invalid
+func (tl *Handler) HasErroredBecauseInvalidConfig() bool {
+	return tl.getLogger().HasErroredBecauseInvalidConfig()
 }
 
 func (tl *Handler) WithAttrs(attrs []slog.Attr) slog.Handler {

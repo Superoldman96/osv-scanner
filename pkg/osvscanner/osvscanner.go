@@ -40,7 +40,6 @@ import (
 
 type ScannerActions struct {
 	LockfilePaths      []string
-	SBOMPaths          []string
 	DirectoryPaths     []string
 	GitCommits         []string
 	Recursive          bool
@@ -50,18 +49,24 @@ type ScannerActions struct {
 	IsImageArchive     bool
 	ConfigOverridePath string
 	CallAnalysisStates map[string]bool
+	ShowAllPackages    bool
+
+	// local databases
+	CompareOffline    bool
+	DownloadDatabases bool
+	LocalDBPath       string
+
+	// license scanning
+	ScanLicensesSummary   bool
+	ScanLicensesAllowlist []string
+
+	// Deprecated: in favor of LockfilePaths
+	SBOMPaths []string
 
 	ExperimentalScannerActions
 }
 
 type ExperimentalScannerActions struct {
-	CompareOffline        bool
-	DownloadDatabases     bool
-	ShowAllPackages       bool
-	ScanLicensesSummary   bool
-	ScanLicensesAllowlist []string
-
-	LocalDBPath string
 	TransitiveScanningActions
 
 	Extractors []filesystem.Extractor
@@ -152,13 +157,13 @@ func initializeExternalAccessors(actions ScannerActions) (ExternalAccessors, err
 	externalAccessors.OSVDevClient = osvdev.DefaultClient()
 
 	// --- No Transitive Scanning ---
-	if actions.TransitiveScanningActions.Disabled {
+	if actions.Disabled {
 		return externalAccessors, nil
 	}
 
 	// --- Transitive Scanning Clients ---
 	externalAccessors.MavenRegistryAPIClient, err = datasource.NewMavenRegistryAPIClient(datasource.MavenRegistry{
-		URL:             actions.TransitiveScanningActions.MavenRegistry,
+		URL:             actions.MavenRegistry,
 		ReleasesEnabled: true,
 	}, "")
 
@@ -166,11 +171,14 @@ func initializeExternalAccessors(actions ScannerActions) (ExternalAccessors, err
 		return ExternalAccessors{}, err
 	}
 
-	if !actions.TransitiveScanningActions.NativeDataSource {
+	if !actions.NativeDataSource {
 		externalAccessors.DependencyClients[osvschema.EcosystemMaven], err = resolution.NewDepsDevClient(depsdev.DepsdevAPI, "osv-scanner_scan/"+version.OSVVersion)
 	} else {
-		externalAccessors.DependencyClients[osvschema.EcosystemMaven], err = resolution.NewMavenRegistryClient(actions.TransitiveScanningActions.MavenRegistry, "")
+		externalAccessors.DependencyClients[osvschema.EcosystemMaven], err = resolution.NewMavenRegistryClient(actions.MavenRegistry, "")
 	}
+
+	// We only support native registry client for PyPI.
+	externalAccessors.DependencyClients[osvschema.EcosystemPyPI] = resolution.NewPyPIRegistryClient("")
 
 	if err != nil {
 		return ExternalAccessors{}, err
@@ -371,7 +379,7 @@ func DoContainerScan(actions ScannerActions) (models.VulnerabilityResults, error
 	for _, psr := range scanResult.PackageScanResults {
 		if (strings.HasPrefix(psr.PackageInfo.Location(), "usr/") && psr.PackageInfo.Ecosystem().Ecosystem == osvschema.EcosystemGo) ||
 			strings.Contains(psr.PackageInfo.Location(), "dist-packages/") && psr.PackageInfo.Ecosystem().Ecosystem == osvschema.EcosystemPyPI {
-			psr.PackageInfo.Package.Annotations = append(psr.PackageInfo.Package.Annotations, extractor.InsideOSPackage)
+			psr.PackageInfo.Annotations = append(psr.PackageInfo.Annotations, extractor.InsideOSPackage)
 		}
 	}
 

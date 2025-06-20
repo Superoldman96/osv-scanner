@@ -28,9 +28,14 @@ func Command(stdout, stderr io.Writer) *cli.Command {
 				TakesFile: true,
 			},
 			&cli.StringSliceFlag{
-				Name:      "sbom",
-				Aliases:   []string{"S"},
-				Usage:     "scan sbom file on this path, the sbom file name must follow the relevant spec",
+				Name:    "sbom",
+				Aliases: []string{"S"},
+				Usage:   "[DEPRECATED] scan sbom file on this path, the sbom file name must follow the relevant spec",
+				Action: func(_ context.Context, _ *cli.Command, _ []string) error {
+					slog.Warn("Warning: --sbom has been deprecated in favor of -L")
+
+					return nil
+				},
 				TakesFile: true,
 			},
 			&cli.BoolFlag{
@@ -109,7 +114,7 @@ func action(_ context.Context, cmd *cli.Command, stdout, stderr io.Writer) error
 
 	callAnalysisStates := helper.CreateCallAnalysisStates(cmd.StringSlice("call-analysis"), cmd.StringSlice("no-call-analysis"))
 
-	experimentalScannerActions := helper.GetExperimentalScannerActions(cmd, scanLicensesAllowlist)
+	experimentalScannerActions := helper.GetExperimentalScannerActions(cmd)
 	// Add `source` specific experimental configs
 	experimentalScannerActions.TransitiveScanningActions = osvscanner.TransitiveScanningActions{
 		Disabled:         cmd.Bool("no-resolve"),
@@ -117,17 +122,15 @@ func action(_ context.Context, cmd *cli.Command, stdout, stderr io.Writer) error
 		MavenRegistry:    cmd.String("maven-registry"),
 	}
 
-	scannerAction := osvscanner.ScannerActions{
-		LockfilePaths:              cmd.StringSlice("lockfile"),
-		SBOMPaths:                  cmd.StringSlice("sbom"),
-		Recursive:                  cmd.Bool("recursive"),
-		IncludeGitRoot:             cmd.Bool("include-git-root"),
-		NoIgnore:                   cmd.Bool("no-ignore"),
-		ConfigOverridePath:         cmd.String("config"),
-		DirectoryPaths:             cmd.Args().Slice(),
-		CallAnalysisStates:         callAnalysisStates,
-		ExperimentalScannerActions: experimentalScannerActions,
-	}
+	scannerAction := helper.GetCommonScannerActions(cmd, scanLicensesAllowlist)
+
+	scannerAction.LockfilePaths = cmd.StringSlice("lockfile")
+	scannerAction.SBOMPaths = cmd.StringSlice("sbom")
+	scannerAction.Recursive = cmd.Bool("recursive")
+	scannerAction.NoIgnore = cmd.Bool("no-ignore")
+	scannerAction.DirectoryPaths = cmd.Args().Slice()
+	scannerAction.CallAnalysisStates = callAnalysisStates
+	scannerAction.ExperimentalScannerActions = experimentalScannerActions
 
 	if len(experimentalScannerActions.Extractors) == 0 {
 		return errors.New("at least one extractor must be enabled")
@@ -136,6 +139,11 @@ func action(_ context.Context, cmd *cli.Command, stdout, stderr io.Writer) error
 	var vulnResult models.VulnerabilityResults
 	//nolint:contextcheck // passing the context in would be a breaking change
 	vulnResult, err = osvscanner.DoScan(scannerAction)
+
+	if cmd.Bool("allow-no-lockfiles") && errors.Is(err, osvscanner.ErrNoPackagesFound) {
+		slog.Warn("No package sources found")
+		err = nil
+	}
 
 	if err != nil && !errors.Is(err, osvscanner.ErrVulnerabilitiesFound) {
 		return err
